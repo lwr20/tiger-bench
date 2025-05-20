@@ -129,11 +129,13 @@ func main() {
 				}
 			}
 		case config.TestKindDNSPerf:
-			_, err = policy.GetOrCreateDNSPolicy(ctx, clients, dnsperf.MakeDNSPolicy(testConfig.TestNamespace, testPolicyName, testConfig.DNSPerf.NumDomains))
-			if err != nil {
-				log.WithError(err).Fatal("failed to create dnsperf policy")
+			if testConfig.DNSPerf.TestDNSPolicy {
+				_, err = policy.GetOrCreateDNSPolicy(ctx, clients, dnsperf.MakeDNSPolicy(testConfig.TestNamespace, testPolicyName, testConfig.DNSPerf.NumDomains))
+				if err != nil {
+					log.WithError(err).Fatal("failed to create dnsperf policy")
+				}
 			}
-			thisResult.DNSPerf, err = dnsperf.RunDNSPerfTests(ctx, clients, testConfig.Duration, testConfig.TestNamespace, cfg.WebServerImage, cfg.PerfImage)
+			thisResult.DNSPerf, err = dnsperf.RunDNSPerfTests(ctx, clients, testConfig.Duration, testConfig.TestNamespace, cfg.WebServerImage, cfg.PerfImage, testConfig.DNSPerf.RunStress)
 			if err != nil {
 				log.WithError(err).Error("failed to run dnsperf tests")
 			}

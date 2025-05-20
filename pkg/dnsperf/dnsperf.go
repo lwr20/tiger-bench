@@ -113,24 +113,28 @@ func MakeDNSPolicy(namespace string, name string, numDomains int) v3.NetworkPoli
 }
 
 // RunDNSPerfTests runs a DNS performance test
-func RunDNSPerfTests(ctx context.Context, clients config.Clients, testDuration int, namespace string, webServerImage string, perfImage string) (*Results, error) {
+func RunDNSPerfTests(ctx context.Context, clients config.Clients, testDuration int, namespace string, webServerImage string, perfImage string, runStress bool) (*Results, error) {
 
 	var results Results
 	log.Debug("entering RunDNSPerfTests function")
-	// setup a deployment to scale up and down repeatedly (to eat felix cpu)
-	scaleDep, err := utils.GetOrCreateDeployment(ctx, clients,
-		makeDeployment(
-			namespace,
-			"dnsscale",
-			int32(0),
-			false,
-			[]string{"default-pool"},
-			webServerImage,
-			[]string{"sh", "-c", "while true; do echo `date`: MARK; sleep 10; done"},
-		),
-	)
-	if err != nil {
-		return &results, err
+	var scaleDep appsv1.Deployment
+	if runStress {
+		// setup a deployment to scale up and down repeatedly (to eat felix cpu)
+		var err error
+		scaleDep, err = utils.GetOrCreateDeployment(ctx, clients,
+			makeDeployment(
+				namespace,
+				"dnsscale",
+				int32(0),
+				false,
+				[]string{"default-pool"},
+				webServerImage,
+				[]string{"sh", "-c", "while true; do echo `date`: MARK; sleep 10; done"},
+			),
+		)
+		if err != nil {
+			return &results, err
+		}
 	}
 	// setup test pods (daemonset)
 	testpods, err := DeployDNSPerfPods(ctx, clients, false, "dnsperf", namespace, perfImage)
@@ -190,7 +194,9 @@ func RunDNSPerfTests(ctx context.Context, clients config.Clients, testDuration i
 	}
 	log.Info("tcpdump threads started")
 
-	go scaleDeploymentLoop(testctx, clients, scaleDep, int32(24), 10*time.Second)
+	if runStress {
+		go scaleDeploymentLoop(testctx, clients, scaleDep, int32(24), 10*time.Second)
+	}
 
 	// kick off per-node threads to run curl commands
 	var rawresults []CurlResult
@@ -284,6 +290,10 @@ func processResults(rawresults []CurlResult) Results {
 			results.FailedCurls++
 		}
 	}
+	if len(lookupTimes) == 0 {
+		log.Info("No successful curls, skipping percentiles")
+		return results
+	}
 	sort.Float64s(lookupTimes)
 	sort.Float64s(connectTimes)
 
@@ -292,6 +302,7 @@ func processResults(rawresults []CurlResult) Results {
 	percentiles := []int{50, 75, 90, 95, 99}
 	results.LookupTime = make(map[int]float64)
 	results.ConnectTime = make(map[int]float64)
+
 	for _, p := range percentiles {
 		results.LookupTime[p] = lookupTimes[int(float64(p)/100*float64(len(lookupTimes)))]
 		log.Infof("lookupTime: %d percentile: %f", p, results.LookupTime[p])
@@ -311,7 +322,7 @@ func runDNSPerfTest(ctx context.Context, srcPod *corev1.Pod, target string) (Cur
 	result.Target = target
 	result.Success = true
 	cmdfrag := `curl -m 8 -w '{"time_lookup": %{time_namelookup}, "time_connect": %{time_connect}}\n' -s -o /dev/null`
-	cmd := fmt.Sprintf("%s %s", cmdfrag, target)
+	cmd := fmt.Sprintf("%s %s:8080", cmdfrag, target)
 	stdout, _, err := utils.ExecCommandInPod(ctx, srcPod, cmd, 10)
 	if err != nil {
 		log.WithError(err).Error("failed to run curl command")
