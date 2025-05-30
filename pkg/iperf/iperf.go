@@ -279,7 +279,7 @@ func DeployIperfPods(ctx context.Context, clients config.Clients, namespace stri
 			log.Debugf("found nodename: %s", nodename)
 			podname := fmt.Sprintf("iperf-srv-%s", nodename)
 			cmd := fmt.Sprintf("iperf3 -s -p %d", port)
-			pod := makePod(nodename, namespace, podname, hostnet, image, cmd)
+			pod := makePod(nodename, namespace, podname, hostnet, image, cmd, port)
 			_, err = utils.GetOrCreatePod(ctx, clients, pod)
 			if err != nil {
 				log.WithError(err).Error("error making iperf pod")
@@ -315,7 +315,7 @@ func parseIperfOutput(stdout string) (int, float64, string, error) {
 	return retransmits, throughput, "Mbits/sec", nil
 }
 
-func makePod(nodename string, namespace string, podname string, hostnetwork bool, image string, command string) corev1.Pod {
+func makePod(nodename string, namespace string, podname string, hostnetwork bool, image string, command string, port int) corev1.Pod {
 	podname = utils.SanitizeString(podname)
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -327,6 +327,11 @@ func makePod(nodename string, namespace string, podname string, hostnetwork bool
 			Namespace: namespace,
 		},
 		Spec: corev1.PodSpec{
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot: utils.BoolPtr(true),
+				RunAsGroup:   utils.Int64Ptr(1000),
+				RunAsUser:    utils.Int64Ptr(1000),
+			},
 			Containers: []corev1.Container{
 				{
 					Name:  "iperf",
@@ -336,10 +341,22 @@ func makePod(nodename string, namespace string, podname string, hostnetwork bool
 						"-c",
 						command,
 					},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged:               utils.BoolPtr(false),
+						AllowPrivilegeEscalation: utils.BoolPtr(false),
+						ReadOnlyRootFilesystem:   utils.BoolPtr(false),
+					},
+					Ports: []corev1.ContainerPort{
+						{
+							Name:          "test-port",
+							ContainerPort: int32(port),
+							Protocol:      corev1.ProtocolTCP,
+						},
+					},
 				},
 			},
 			NodeName:      nodename,
-			RestartPolicy: "OnFailure",
+			RestartPolicy: corev1.RestartPolicyOnFailure,
 			HostNetwork:   hostnetwork,
 		},
 	}
@@ -364,6 +381,7 @@ func makeSvc(namespace string, podname string, port int) corev1.Service {
 			},
 			Ports: []corev1.ServicePort{
 				{
+					Name: "test-port",
 					Port: int32(port),
 				},
 			},

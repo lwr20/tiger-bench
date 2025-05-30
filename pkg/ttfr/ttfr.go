@@ -303,10 +303,27 @@ func makePod(nodename string, namespace string, podname string, hostnetwork bool
 			Namespace: namespace,
 		},
 		Spec: corev1.PodSpec{
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot: utils.BoolPtr(true),
+				RunAsGroup:   utils.Int64Ptr(1000),
+				RunAsUser:    utils.Int64Ptr(1000),
+			},
 			Containers: []corev1.Container{
 				{
 					Name:  "ttfr",
 					Image: image,
+					SecurityContext: &corev1.SecurityContext{
+						Privileged:               utils.BoolPtr(false),
+						AllowPrivilegeEscalation: utils.BoolPtr(false),
+						ReadOnlyRootFilesystem:   utils.BoolPtr(true),
+					},
+					Ports: []corev1.ContainerPort{
+						{
+							Name:          "http",
+							ContainerPort: 8080,
+							Protocol:      corev1.ProtocolTCP,
+						},
+					},
 				},
 			},
 			NodeName:      nodename,
@@ -330,6 +347,11 @@ func makeTestPod(nodename string, namespace string, podname string, hostnetwork 
 			Namespace: namespace,
 		},
 		Spec: corev1.PodSpec{
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot: utils.BoolPtr(true),
+				RunAsGroup:   utils.Int64Ptr(1000),
+				RunAsUser:    utils.Int64Ptr(1000),
+			},
 			Containers: []corev1.Container{
 				{
 					Name:  "ttfr",
@@ -346,6 +368,18 @@ func makeTestPod(nodename string, namespace string, podname string, hostnetwork 
 						{
 							Name:  "PROTOCOL",
 							Value: "http",
+						},
+					},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged:               utils.BoolPtr(false),
+						AllowPrivilegeEscalation: utils.BoolPtr(false),
+						ReadOnlyRootFilesystem:   utils.BoolPtr(true),
+					},
+					Ports: []corev1.ContainerPort{
+						{
+							Name:          "http",
+							ContainerPort: 8080,
+							Protocol:      corev1.ProtocolTCP,
 						},
 					},
 				},
